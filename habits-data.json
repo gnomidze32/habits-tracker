@@ -1,0 +1,54 @@
+[
+  {
+    "id": 1,
+    "title": "Практика программирования (Go)",
+    "days": [
+      true,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  {
+    "id": 2,
+    "title": "Тренировка / Разминка",
+    "days": [
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  {
+    "id": 3,
+    "title": "Конспекты в Obsidian",
+    "days": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  {
+    "id": 4,
+    "title": "Чтение 30 минут",
+    "days": [
+      true,
+      true,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  }
+]

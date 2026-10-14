@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0b0f19">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Трекер Привычек (Syncthing)</title>
+
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='128' fill='%230b0f19'/%3E%3Cpath d='M368 176L224 320l-80-80' fill='none' stroke='%2310b981' stroke-width='44' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        * { -webkit-tap-highlight-color: transparent; user-select: none; }
+        body {
+            background-color: #0b0f19;
+            color: #f8fafc;
+            font-family: system-ui, -apple-system, sans-serif;
+            overscroll-behavior-y: none;
+        }
+        .glass {
+            background: rgba(17, 24, 39, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .day-btn { transition: transform 0.12s ease, background-color 0.15s ease; }
+        .day-btn:active { transform: scale(0.9); }
+    </style>
+</head>
+<body class="min-h-screen pb-24 px-4 pt-5 max-w-md mx-auto flex flex-col gap-4">
+
+    <header class="flex items-center justify-between gap-2">
+        <div>
+            <span id="currentDateText" class="text-xs font-medium text-indigo-400 uppercase tracking-wider">Сегодня</span>
+            <h1 class="text-2xl font-bold tracking-tight mt-0.5">Мои привычки</h1>
+        </div>
+        <button id="installAppBtn" class="hidden px-3 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold shadow-lg active:scale-95 transition">
+            Установить App
+        </button>
+    </header>
+
+    <!-- Блок синхронизации через файл в папке Obsidian / Syncthing -->
+    <section class="glass rounded-2xl p-3.5 flex flex-col gap-2.5 border border-indigo-500/20">
+        <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 min-w-0">
+                <span id="syncDot" class="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0"></span>
+                <span id="syncStatusText" class="text-xs text-slate-300 truncate">Локальная память (файл не выбран)</span>
+            </div>
+            <button id="reloadFileBtn" class="hidden text-xs px-2.5 py-1 rounded-lg bg-slate-800 text-indigo-300 hover:bg-slate-700 shrink-0">
+                Обновить
+            </button>
+        </div>
+        <div class="flex gap-2">
+            <button id="connectFileBtn" class="flex-1 py-2 px-3 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 text-xs font-medium transition active:scale-98">
+                📂 Выбрать habits-data.json из папки Obsidian
+            </button>
+            <button id="createFileBtn" class="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition">
+                Создать файл
+            </button>
+        </div>
+    </section>
+
+    <section class="glass rounded-2xl p-4 grid grid-cols-3 gap-3 text-center">
+        <div class="bg-slate-900/70 rounded-xl p-3 border border-white/5">
+            <div class="text-xs text-slate-400">Сегодня</div>
+            <div id="statToday" class="text-xl font-bold text-emerald-400 mt-1">0/0</div>
+        </div>
+        <div class="bg-slate-900/70 rounded-xl p-3 border border-white/5">
+            <div class="text-xs text-slate-400">Лучший стрик</div>
+            <div id="statStreak" class="text-xl font-bold text-amber-400 mt-1">0 дн</div>
+        </div>
+        <div class="bg-slate-900/70 rounded-xl p-3 border border-white/5">
+            <div class="text-xs text-slate-400">За неделю</div>
+            <div id="statWeekRate" class="text-xl font-bold text-indigo-400 mt-1">0%</div>
+        </div>
+    </section>
+
+    <section class="glass rounded-2xl p-4">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-semibold text-slate-200">График серий за неделю</h2>
+            <span class="text-xs text-slate-400">Пн – Вс</span>
+        </div>
+        <div class="h-44 w-full">
+            <canvas id="weeklyChart"></canvas>
+        </div>
+    </section>
+
+    <section id="habitsList" class="flex flex-col gap-3"></section>
+
+    <div class="fixed bottom-4 left-0 right-0 px-4 max-w-md mx-auto z-20">
+        <form id="addHabitForm" class="glass rounded-2xl p-2 flex gap-2 shadow-2xl border border-indigo-500/20">
+            <input id="habitInput" type="text" placeholder="Новая цель (например, Код на Go)..." required
+                class="flex-1 bg-slate-900/90 text-sm text-white placeholder-slate-500 px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 select-text">
+            <button type="submit" class="bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-semibold px-4 rounded-xl text-sm transition">
+                +
+            </button>
+        </form>
+    </div>
+
+    <script>
+        const manifest = {
+            name: "Трекер Привычек",
+            short_name: "Привычки",
+            start_url: window.location.href,
+            display: "standalone",
+            background_color: "#0b0f19",
+            theme_color: "#0b0f19",
+            icons: [{
+                src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='128' fill='%230b0f19'/%3E%3Cpath d='M368 176L224 320l-80-80' fill='none' stroke='%2310b981' stroke-width='44' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E",
+                sizes: "512x512",
+                type: "image/svg+xml"
+            }]
+        };
+        const manifestLink = document.createElement('link');
+        manifestLink.rel = 'manifest';
+        manifestLink.href = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: 'application/json' }));
+        document.head.appendChild(manifestLink);
+
+        let deferredPrompt;
+        const installBtn = document.getElementById('installAppBtn');
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installBtn.classList.remove('hidden');
+        });
+        installBtn.addEventListener('click', async () => {
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt();
+            await deferredPrompt.userChoice;
+            deferredPrompt = null;
+            installBtn.classList.add('hidden');
+        });
+
+        const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+        const STORAGE_KEY = 'habit_pwa_v1';
+        const todayIdx = (new Date().getDay() + 6) % 7;
+
+        document.getElementById('currentDateText').textContent = new Intl.DateTimeFormat('ru-RU', {
+            weekday: 'long', day: 'numeric', month: 'long'
+        }).format(new Date());
+
+        const defaultHabits = [
+            { id: 1, title: 'Практика программирования (Go)', days: [true, true, true, false, true, false, false] },
+            { id: 2, title: 'Тренировка / Разминка', days: [true, false, true, true, true, false, false] },
+            { id: 3, title: 'Конспекты в Obsidian', days: [false, true, true, true, true, false, false] },
+            { id: 4, title: 'Чтение 30 минут', days: [true, true, false, true, true, false, false] }
+        ];
+
+        let habits = JSON.parse(localStorage.getItem(STORAGE_KEY)) || defaultHabits;
+        let fileHandle = null;
+
+        function openHandleDB() {
+            return new Promise((resolve, reject) => {
+                const req = indexedDB.open('HabitSyncDB', 1);
+                req.onupgradeneeded = () => req.result.createObjectStore('handles');
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+        }
+
+        async function saveHandleToDB(handle) {
+            const db = await openHandleDB();
+            const tx = db.transaction('handles', 'readwrite');
+            tx.objectStore('handles').put(handle, 'syncFile');
+        }
+
+        async function getHandleFromDB() {
+            const db = await openHandleDB();
+            return new Promise((resolve) => {
+                const tx = db.transaction('handles', 'readonly');
+                const req = tx.objectStore('handles').get('syncFile');
+                req.onsuccess = () => resolve(req.result || null);
+                req.onerror = () => resolve(null);
+            });
+        }
+
+        function updateSyncUI(state, message) {
+            const dot = document.getElementById('syncDot');
+            const text = document.getElementById('syncStatusText');
+            const reloadBtn = document.getElementById('reloadFileBtn');
+            text.textContent = message;
+            if (state === 'synced') {
+                dot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0';
+                reloadBtn.classList.remove('hidden');
+            } else if (state === 'pending') {
+                dot.className = 'w-2.5 h-2.5 rounded-full bg-indigo-400 shrink-0';
+                reloadBtn.classList.remove('hidden');
+            } else {
+                dot.className = 'w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0';
+                reloadBtn.classList.add('hidden');
+            }
+        }
+
+        async function readFromFile() {
+            if (!fileHandle) return;
+            try {
+                const perm = await fileHandle.queryPermission({ mode: 'readwrite' });
+                if (perm !== 'granted') {
+                    const req = await fileHandle.requestPermission({ mode: 'readwrite' });
+                    if (req !== 'granted') {
+                        updateSyncUI('pending', `Нужен доступ к ${fileHandle.name} (нажми Обновить)`);
+                        return;
+                    }
+                }
+                const file = await fileHandle.getFile();
+                const content = await file.text();
+                if (content.trim()) {
+                    const parsed = JSON.parse(content);
+                    if (Array.isArray(parsed)) {
+                        habits = parsed;
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify(habits));
+                        render();
+                    }
+                } else {
+                    await writeToFile();
+                }
+                updateSyncUI('synced', `Синхронизировано: ${fileHandle.name}`);
+            } catch (err) {
+                updateSyncUI('error', 'Ошибка чтения файла');
+            }
+        }
+
+        async function writeToFile() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(habits));
+            if (!fileHandle) return;
+            try {
+                const perm = await fileHandle.queryPermission({ mode: 'readwrite' });
+                if (perm !== 'granted') {
+                    const req = await fileHandle.requestPermission({ mode: 'readwrite' });
+                    if (req !== 'granted') return;
+                }
+                const writable = await fileHandle.createWritable();
+                await writable.write(JSON.stringify(habits, null, 2));
+                await writable.close();
+                updateSyncUI('synced', `Сохранено в ${fileHandle.name}`);
+            } catch (err) {
+                updateSyncUI('error', 'Не удалось записать в файл');
+            }
+        }
+
+        document.getElementById('connectFileBtn').addEventListener('click', async () => {
+            if (!window.showOpenFilePicker) {
+                alert('Твой браузер не поддерживает прямую перезапись файлов. Открой страницу в Chrome.');
+                return;
+            }
+            try {
+                const [handle] = await window.showOpenFilePicker({
+                    types: [{ description: 'JSON Sync File', accept: { 'application/json': ['.json'] } }],
+                    multiple: false
+                });
+                fileHandle = handle;
+                await saveHandleToDB(handle);
+                await readFromFile();
+            } catch (e) {}
+        });
+
+        document.getElementById('createFileBtn').addEventListener('click', async () => {
+            if (!window.showSaveFilePicker) {
+                alert('Открой дашборд в браузере Chrome для создания синхронизируемого файла.');
+                return;
+            }
+            try {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: 'habits-data.json',
+                    types: [{ description: 'JSON Sync File', accept: { 'application/json': ['.json'] } }]
+                });
+                fileHandle = handle;
+                await saveHandleToDB(handle);
+                await writeToFile();
+                render();
+            } catch (e) {}
+        });
+
+        document.getElementById('reloadFileBtn').addEventListener('click', () => readFromFile());
+
+        window.addEventListener('focus', () => {
+            if (fileHandle) readFromFile();
+        });
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && fileHandle) readFromFile();
+        });
+
+        async function saveState() {
+            render();
+            await writeToFile();
+        }
+
+        function calcStreak(daysArr) {
+            let streak = 0;
+            for (let i = todayIdx; i >= 0; i--) {
+                if (daysArr[i]) streak++;
+                else if (i < todayIdx) break;
+            }
+            return streak;
+        }
+
+        let chartInstance = null;
+        function updateChart() {
+            const completedPerDay = DAYS.map((_, dIdx) => habits.reduce((acc, h) => acc + (h.days[dIdx] ? 1 : 0), 0));
+            const streakMomentum = [];
+            let running = 0;
+            completedPerDay.forEach(count => {
+                running = count > 0 ? running + count : 0;
+                streakMomentum.push(running);
+            });
+
+            const ctx = document.getElementById('weeklyChart').getContext('2d');
+            if (chartInstance) chartInstance.destroy();
+
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: DAYS,
+                    datasets: [
+                        {
+                            type: 'line',
+                            label: 'Импульс серии',
+                            data: streakMomentum,
+                            borderColor: '#f59e0b',
+                            backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                            borderWidth: 2.5,
+                            tension: 0.35,
+                            pointRadius: 3
+                        },
+                        {
+                            type: 'bar',
+                            label: 'Выполнено за день',
+                            data: completedPerDay,
+                            backgroundColor: DAYS.map((_, i) => i === todayIdx ? '#10b981' : '#6366f1'),
+                            borderRadius: 6
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 11 } } },
+                        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { stepSize: 1, color: '#64748b', font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        function render() {
+            const list = document.getElementById('habitsList');
+            list.innerHTML = '';
+
+            let doneToday = 0;
+            let bestStreak = 0;
+            let totalChecks = 0;
+
+            habits.forEach(habit => {
+                const streak = calcStreak(habit.days);
+                if (streak > bestStreak) bestStreak = streak;
+                if (habit.days[todayIdx]) doneToday++;
+                totalChecks += habit.days.filter(Boolean).length;
+
+                const card = document.createElement('div');
+                card.className = 'glass rounded-2xl p-4 flex flex-col gap-3';
+
+                const topRow = document.createElement('div');
+                topRow.className = 'flex items-center justify-between gap-2';
+                topRow.innerHTML = `
+                    <div class="font-medium text-sm text-slate-100 truncate">${habit.title}</div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <span class="text-xs font-semibold px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            🔥 ${streak} дн
+                        </span>
+                        <button data-del="${habit.id}" class="text-slate-500 hover:text-rose-400 text-xs px-1.5 py-0.5">✕</button>
+                    </div>
+                `;
+
+                const daysRow = document.createElement('div');
+                daysRow.className = 'grid grid-cols-7 gap-1.5';
+
+                DAYS.forEach((dayName, dIdx) => {
+                    const active = habit.days[dIdx];
+                    const isToday = dIdx === todayIdx;
+                    const btn = document.createElement('button');
+                    btn.className = `day-btn h-10 rounded-xl flex flex-col items-center justify-center text-xs font-medium border ${
+                        active
+                            ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                            : isToday
+                                ? 'bg-slate-800/90 border-indigo-500/50 text-slate-300'
+                                : 'bg-slate-900/60 border-white/5 text-slate-500'
+                    }`;
+                    btn.innerHTML = `
+                        <span class="text-[10px] opacity-75">${dayName}</span>
+                        <span class="text-xs mt-0.5">${active ? '✓' : '·'}</span>
+                    `;
+                    btn.addEventListener('click', () => {
+                        habit.days[dIdx] = !habit.days[dIdx];
+                        saveState();
+                    });
+                    daysRow.appendChild(btn);
+                });
+
+                card.appendChild(topRow);
+                card.appendChild(daysRow);
+                list.appendChild(card);
+            });
+
+            document.querySelectorAll('[data-del]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const id = Number(btn.getAttribute('data-del'));
+                    habits = habits.filter(h => h.id !== id);
+                    saveState();
+                });
+            });
+
+            document.getElementById('statToday').textContent = `${doneToday}/${habits.length}`;
+            document.getElementById('statStreak').textContent = `${bestStreak} дн`;
+            const maxPossible = habits.length * 7;
+            const rate = maxPossible ? Math.round((totalChecks / maxPossible) * 100) : 0;
+            document.getElementById('statWeekRate').textContent = `${rate}%`;
+
+            updateChart();
+        }
+
+        document.getElementById('addHabitForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const input = document.getElementById('habitInput');
+            const title = input.value.trim();
+            if (!title) return;
+            habits.push({ id: Date.now(), title, days: [false, false, false, false, false, false, false] });
+            input.value = '';
+            saveState();
+        });
+
+        (async () => {
+            render();
+            const savedHandle = await getHandleFromDB();
+            if (savedHandle) {
+                fileHandle = savedHandle;
+                const perm = await fileHandle.queryPermission({ mode: 'readwrite' });
+                if (perm === 'granted') {
+                    await readFromFile();
+                } else {
+                    updateSyncUI('pending', `Файл ${fileHandle.name} привязан (нажми Обновить)`);
+                }
+            }
+        })();
+    </script>
+</body>
+</html>
